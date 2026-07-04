@@ -86,6 +86,7 @@ def page(message: str = "") -> bytes:
     connect_label = "Connect Google Health" if state == "missing" else "Reconnect Google Health"
     pending = (TOKEN_FILE.parent / "sync-request.json").exists()
     body = f"""<!doctype html><html><head><meta charset="utf-8">
+{'<meta http-equiv="refresh" content="10">' if pending else ''}
 <title>Health stack — setup</title>
 <style>
  body {{ background:#111217; color:#d8d9da; font:15px -apple-system,system-ui,sans-serif;
@@ -111,10 +112,10 @@ def page(message: str = "") -> bytes:
   <p>Ask the fetcher for fresh data (picked up within ~30&nbsp;s; watch progress in
      <code>docker compose logs -f fitbit-fetch-data</code>):</p>
   <form method="post" action="/sync" style="display:inline"><input type="hidden" name="days" value="2">
-    <button {"disabled" if pending else ""}>Sync last 2 days</button></form>
+    <button>Sync last 2 days</button></form>
   <form method="post" action="/sync" style="display:inline"><input type="hidden" name="days" value="28">
-    <button class="secondary" {"disabled" if pending else ""}>Backfill 28 days</button></form>
-  {'<p class="muted">A sync request is already queued.</p>' if pending else ''}
+    <button class="secondary">Backfill 28 days</button></form>
+  {'<p>⏳ A sync request is queued — the fetcher picks it up within ~30 s and this page refreshes itself. Watch “Last data point” above move as data lands.</p>' if pending else ''}
   <p class="muted">Longer backfills: see “Historical backfill” in the README.</p>
 </div>
 <div class="card"><a class="btn secondary" style="background:#2c3235" href="{GRAFANA_URL}">Open the dashboard →</a></div>
