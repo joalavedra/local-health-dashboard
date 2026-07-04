@@ -29,7 +29,11 @@ CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET") or ""
 TOKEN_FILE = Path(os.environ.get("TOKEN_FILE_PATH") or "tokens/fitbit.token")
 INFLUX = os.environ.get("INFLUX_URL") or "http://localhost:8086"
 GRAFANA_URL = os.environ.get("GRAFANA_URL") or "http://localhost:3000"
-REDIRECT = f"http://localhost:{PORT}/callback"
+# The URL this page is reachable at FROM THE BROWSER — differs from the internal
+# port whenever compose remaps it (e.g. '8100:8000'). Google redirects here, so a
+# mismatch sends the consent code to whatever else is listening on that port.
+PUBLIC_URL = (os.environ.get("SETUP_PUBLIC_URL") or f"http://localhost:{PORT}").rstrip("/")
+REDIRECT = f"{PUBLIC_URL}/callback"
 SCOPES = " ".join([
     "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly",
     "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly",
