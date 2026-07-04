@@ -72,6 +72,16 @@ VIT_LN_PER_YEAR = math.log(2) / 8.0
 VIT_SHRINK, VIT_MIN_FACTORS, VIT_BAND = 0.75, 3, 5.0
 VIT_MIN_AGE, VIT_MAX_AGE, VIT_PER_YEAR = 20.0, 90.0, 2.5
 VIT_RMSSD_NORM = [(20, 47), (30, 40), (40, 33), (50, 29), (60, 25), (70, 22), (80, 20)]
+# Body clock (CircadianEngine): single-component cosinor (Halberg) over the
+# rest-activity rhythm; acrophase → estimated temperature-minimum → offset vs
+# the user's own sleep schedule. Light/sleep TIMING advice only, never a
+# supplement. Hours must be LOCAL — set LOCAL_TZ (IANA name) in .env.
+CIRC_MIN_DAYS, CIRC_GOOD_DAYS = 7, 14
+CIRC_MIN_REL_AMP = 0.10
+CIRC_SHIFT_PER_DAY = 1.0          # hours/day re-entrainment rate
+CIRC_CBT_BEFORE_WAKE = 2.5        # CBTmin sits ~2.5 h before habitual wake
+CIRC_ACRO_AFTER_CBT = 12.0        # activity peak ~12 h after CBTmin
+LOCAL_TZ = os.environ.get("LOCAL_TZ") or "UTC"
 # Recovery forecast (RecoveryForecaster): tomorrow-morning recovery estimate
 FC_WINDOW, FC_MIN_NIGHTS, FC_TRUSTED_NIGHTS = 14, 5, 10
 FC_STRAIN_W, FC_EFFORT_SPREAD, FC_STRAIN_CAP = 9.0, 12.0, 12.0
@@ -117,6 +127,41 @@ def hr_by_day(days_back: int) -> dict[str, list[tuple[int, int]]]:
     for d in out:
         out[d].sort()
     return out
+
+
+def hourly_activity(days_back: int = 45) -> dict[str, list[tuple[float, float]]]:
+    """Per LOCAL day: (local clock hour, steps) bins from Steps_Intraday."""
+    rows = query(f'SELECT SUM("value") FROM "Steps_Intraday" WHERE time > now() - {days_back}d '
+                 f"GROUP BY time(1h) fill(none)")
+    import datetime
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(LOCAL_TZ)
+    out: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    for s in rows:
+        for ts, val in s["values"]:
+            if val is None:
+                continue
+            t = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(tz)
+            out[t.strftime("%Y-%m-%d")].append((t.hour + t.minute / 60.0, float(val)))
+    return out
+
+
+def sleep_window_hours(days_back: int = 45) -> dict[str, tuple[float, float]]:
+    """Per LOCAL day: (sleep-onset hour, wake hour) from the first/last main-sleep
+    record of the night. Approximate but consistent — exactly what the cosinor
+    schedule comparison needs."""
+    rows = query(f'SELECT "level" FROM "Sleep Levels" WHERE "isMainSleep" = \'True\' '
+                 f"AND time > now() - {days_back}d")
+    import datetime
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(LOCAL_TZ)
+    spans: dict[str, list] = defaultdict(list)
+    for s in rows:
+        for ts, _ in s["values"]:
+            t = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(tz)
+            spans[t.strftime("%Y-%m-%d")].append(t)
+    return {d: (ts_[0].hour + ts_[0].minute / 60.0, ts_[-1].hour + ts_[-1].minute / 60.0)
+            for d, ts_ in ((d, sorted(v)) for d, v in spans.items())}
 
 
 def write_points(lines: list[str]) -> None:
@@ -273,6 +318,96 @@ def forecast(recoveries: list[float], strains: list[float], sleep_hours: list[fl
     return round(value, 1), round(band, 1)
 
 
+def wrap24(h: float) -> float:
+    return h % 24.0
+
+
+def signed_hour_delta(a: float, b: float) -> float:
+    """Signed shortest delta in hours from a to b on the 24 h clock, in (-12, 12]."""
+    d = (b - a) % 24.0
+    return d - 24.0 if d > 12.0 else d
+
+
+def cosinor(bins: list[tuple[float, float]]):
+    """Single-component cosinor: fit y = M + beta*cos(wt) + gamma*sin(wt) by OLS
+    (Cramer's rule on the 3x3 normal equations). Returns (mesor, amplitude,
+    acrophase_hours — clock time of the activity PEAK) or None if degenerate."""
+    if len(bins) < 3:
+        return None
+    w = 2.0 * math.pi / 24.0
+    n = float(len(bins))
+    sy = sc = ss = scc = sss = scs = syc = sys_ = 0.0
+    for hour, y in bins:
+        c, s = math.cos(w * hour), math.sin(w * hour)
+        sy += y; sc += c; ss += s
+        scc += c * c; sss += s * s; scs += c * s
+        syc += y * c; sys_ += y * s
+    det = (n * (scc * sss - scs * scs) - sc * (sc * sss - scs * ss)
+           + ss * (sc * scs - scc * ss))
+    if abs(det) <= 1e-12:
+        return None
+    det_m = (sy * (scc * sss - scs * scs) - sc * (syc * sss - scs * sys_)
+             + ss * (syc * scs - scc * sys_))
+    det_b = (n * (syc * sss - scs * sys_) - sy * (sc * sss - scs * ss)
+             + ss * (sc * sys_ - syc * ss))
+    det_g = (n * (scc * sys_ - syc * scs) - sc * (sc * sys_ - syc * ss)
+             + sy * (sc * scs - scc * ss))
+    m, beta, gamma = det_m / det, det_b / det, det_g / det
+    amplitude = (beta * beta + gamma * gamma) ** 0.5
+    phase = wrap24(math.atan2(gamma, beta) / w)
+    return m, amplitude, phase
+
+
+def estimate_phase(bins, days_observed: int, wake_hour: float):
+    """CircadianEngine.estimatePhase: (temp_min_h, acrophase_h, offset_min,
+    confidence 0 unreadable / 1 wide / 2 solid, rel_amplitude) or None.
+    offset_min > 0 = body clock later than the schedule implies (night-owl lean)."""
+    fit = cosinor(bins)
+    if fit is None:
+        return None
+    mesor, amplitude, acro = fit
+    rel_amp = amplitude / abs(mesor) if mesor != 0 else 0.0
+    temp_min = wrap24(acro - CIRC_ACRO_AFTER_CBT)
+    if days_observed < CIRC_MIN_DAYS or rel_amp < CIRC_MIN_REL_AMP:
+        return temp_min, acro, 0.0, 0, rel_amp
+    ideal_temp_min = wrap24(wake_hour - CIRC_CBT_BEFORE_WAKE)
+    offset_min = signed_hour_delta(ideal_temp_min, temp_min) * 60.0
+    conf = 2 if days_observed >= CIRC_GOOD_DAYS else 1
+    return temp_min, acro, round(offset_min, 1), conf, rel_amp
+
+
+def clock(hour: float) -> str:
+    h = wrap24(hour)
+    hh, mm = int(h), int(round((h - int(h)) * 60))
+    if mm == 60:
+        hh, mm = (hh + 1) % 24, 0
+    return f"{hh:02d}:{mm:02d}"
+
+
+def plan_shift(shift_hours: float, sleep_hour: float, wake_hour: float) -> str:
+    """CircadianEngine.planShift: stepped ~1 h/day light + sleep-timing plan.
+    Positive shift = ADVANCE (eastward / earlier); negative = DELAY (westward).
+    Light and sleep timing only — never a supplement."""
+    magnitude = abs(shift_hours)
+    if magnitude < 0.5:
+        return "No meaningful body-clock shift needed — you're about aligned."
+    advancing = shift_hours > 0
+    days = math.ceil(magnitude / CIRC_SHIFT_PER_DAY)
+    out = [f"Shifting your clock {magnitude:.1f} h {'earlier' if advancing else 'later'}, "
+           f"about an hour a day ({days} days). Light and sleep timing only.\n"]
+    cumulative = 0.0
+    for i in range(1, days + 1):
+        cumulative += min(CIRC_SHIFT_PER_DAY, magnitude - cumulative)
+        signed = -cumulative if advancing else cumulative
+        sleep, wake = wrap24(sleep_hour + signed), wrap24(wake_hour + signed)
+        if advancing:
+            light = f"bright light {clock(wake)}–{clock(wake + 2)}, dim from {clock(sleep - 2)}"
+        else:
+            light = f"bright light {clock(sleep - 3)}–{clock(sleep - 1)}, easy on bright mornings"
+        out.append(f"  Day {i}: sleep {clock(sleep)} → wake {clock(wake)} | {light}")
+    return "\n".join(out)
+
+
 def rmssd_norm(age: float) -> float:
     """Nocturnal RMSSD ~50th percentile by age, piecewise-linear between anchors."""
     a = VIT_RMSSD_NORM
@@ -323,7 +458,8 @@ def vitality(rhr14, hrv14, sleep_h14, steps14, vo2_last):
     return round(vit, 1), round(body_age, 1), round(delta, 1), years
 
 
-def build_insight(recs: list[float], forecast_now, debt_h, ill, fa, strains: list[float]) -> str:
+def build_insight(recs: list[float], forecast_now, debt_h, ill, fa, strains: list[float],
+                  circ=None) -> str:
     """Plain-language conclusions inferred from the current numbers — regenerated
     on every run so the dashboard text never goes stale. Rule-based and factual;
     each sentence maps to one visible metric."""
@@ -354,6 +490,14 @@ def build_insight(recs: list[float], forecast_now, debt_h, ill, fa, strains: lis
         active = [s for s in strains[-7:] if s * STRAIN_TO_100 >= 30.0]
         if not active:
             parts.append("No real training load this week — recovery capacity is going unused.")
+    if circ is not None and circ[3] >= 1:
+        off = circ[2]
+        if off > 20:
+            parts.append(f"Your body clock runs ~{off:.0f} min later than your schedule — a night-owl lean.")
+        elif off < -20:
+            parts.append(f"Your body clock runs ~{-off:.0f} min earlier than your schedule — a morning-lark lean.")
+        else:
+            parts.append("Your body clock is well-aligned with your schedule.")
     return " ".join(parts) or "Not enough data yet — conclusions appear as history accrues."
 
 
@@ -399,6 +543,8 @@ def main() -> None:
     inbed = daily("Sleep Summary", "minutesInBed", "WHERE isMainSleep='True'")
     hr_days = hr_by_day(days_back=21)
     debt = sleep_debt(sorted(asleep.items()))
+    activity = hourly_activity()
+    sleep_windows = sleep_window_hours()
 
     days = sorted(set(hrv) | set(rhr) | set(resp) | set(skin))
     band_sources = (("resting_hr", rhr), ("hrv", hrv), ("resp_rate", resp), ("skin_temp_dev", skin))
@@ -479,6 +625,15 @@ def main() -> None:
                        vo2.get(d))
         if vit is not None:
             lines.append(f"Vitality,Device={dev} value={vit[0]},body_age={vit[1]},delta={vit[2]} {ts}")
+        act_days = [x for x in fortnight if len(activity.get(x, [])) >= 6]
+        wakes = sorted(sleep_windows[x][1] for x in fortnight if x in sleep_windows)
+        if act_days and wakes:
+            bins = [b for x in act_days for b in activity[x]]
+            circ = estimate_phase(bins, len(act_days), wakes[len(wakes) // 2])
+            if circ is not None:
+                tmin, acro, off, conf, ramp = circ
+                lines.append(f"Circadian,Device={dev} acrophase_h={acro:.2f},temp_min_h={tmin:.2f},"
+                             f"offset_min={off},rel_amplitude={ramp:.3f},confidence={conf} {ts}")
         if i == len(days) - 1:
             # Driver breakdowns for the current day only — the "why" panels.
             if vit is not None:
@@ -503,8 +658,15 @@ def main() -> None:
                           [asleep[x] / 60.0 for x in days if x in asleep])
         debt_last = ([debt[x][0] / 60.0 for x in days if x in debt] or [None])[-1]
         ill_last = summary[-1][3] if summary else None
+        last_wakes = sorted(sleep_windows[x][1] for x in days[-14:] if x in sleep_windows)
+        circ_now = None
+        act_now = [x for x in days[-14:] if len(activity.get(x, [])) >= 6]
+        if act_now and last_wakes:
+            circ_now = estimate_phase([b for x in act_now for b in activity[x]],
+                                      len(act_now), last_wakes[len(last_wakes) // 2])
         text = build_insight(rec_series, fc_now[0] if fc_now else None, debt_last,
-                             ill_last, fa_now, [strain_by_day[x] for x in days if x in strain_by_day])
+                             ill_last, fa_now, [strain_by_day[x] for x in days if x in strain_by_day],
+                             circ_now)
         esc = text.replace("\\", "\\\\").replace('"', '\\"')
         import datetime
         ts = int(datetime.datetime.fromisoformat(days[-1] + "T12:00:00+00:00").timestamp())
@@ -524,4 +686,17 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--plan-shift" in sys.argv:
+        # Jet-lag / shift-work planner: `compute_metrics.py --plan-shift +6` for a
+        # 6 h ADVANCE (eastward), `--plan-shift -3` for a 3 h delay (westward).
+        # Uses your habitual sleep window from the last two weeks of sleep records.
+        shift = float(sys.argv[sys.argv.index("--plan-shift") + 1])
+        windows = sorted(sleep_window_hours(14).values())
+        if not windows:
+            raise SystemExit("No sleep records yet — can't derive your current sleep window.")
+        sleeps = sorted(w[0] for w in windows)
+        wakes = sorted(w[1] for w in windows)
+        print(plan_shift(shift, sleeps[len(sleeps) // 2], wakes[len(wakes) // 2]))
+    else:
+        main()

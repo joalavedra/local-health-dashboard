@@ -77,6 +77,7 @@ services:
       - DEVICENAME=${DEVICENAME}
       - USER_AGE=${USER_AGE:-30} # drives Fitness Age; set your real age in .env
       - USER_SEX=${USER_SEX:-male} # male | female (sex-specific published coefficients)
+      - LOCAL_TZ=${LOCAL_TZ:-UTC} # IANA zone (e.g. Europe/Madrid) — the body clock needs local hours
     depends_on:
       - influxdb
 

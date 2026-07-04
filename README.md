@@ -40,6 +40,10 @@ calls are read-only pulls from your own Google account.
 - **Tomorrow's recovery forecast** — an evening estimate with an honest ± band,
   charted against what actually happened.
 - **"Today's read"** — a rule-based plain-language summary regenerated hourly.
+- **Body clock** — a cosinor fit over your rest–activity rhythm: activity acrophase,
+  estimated temperature minimum, and how far your clock leans vs your own schedule.
+  Includes a jet-lag planner: `docker exec compute-metrics python compute_metrics.py
+  --plan-shift +6` prints a stepped light/sleep-timing plan (never a supplement).
 
 Baselines are personal and honest: scores cold-start until enough nights exist
 (4 for Recovery, 14 for the illness watch and bands).
