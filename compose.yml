@@ -44,6 +44,26 @@ services:
     depends_on:
       - influxdb
 
+  # Setup & sync page (http://localhost:8000): connect a Google account with one
+  # button, see token/data health, trigger a re-sync or 28-day backfill.
+  setup:
+    restart: unless-stopped
+    build: .
+    image: fitbit-fetch-data-local:patched
+    container_name: health-setup
+    command: ["python", "setup_app.py"]
+    ports:
+      - '8000:8000'
+    volumes:
+      - ./tokens:/app/tokens
+    environment:
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - TOKEN_FILE_PATH=/app/tokens/fitbit.token
+      - INFLUX_URL=http://influxdb:8086
+    depends_on:
+      - influxdb
+
   # Derived scores (Recovery, Strain, illness heads-up, vital bands, sleep debt) —
   # recomputed hourly from whatever the fetcher has landed in InfluxDB.
   compute-metrics:

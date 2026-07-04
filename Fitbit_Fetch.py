@@ -851,7 +851,16 @@ def Get_New_Access_Token(client_id, client_secret):
         if provider_in_file != HEALTH_API_PROVIDER:
             logging.warning("Token file provider '%s' does not match HEALTH_API_PROVIDER '%s'.", provider_in_file, HEALTH_API_PROVIDER)
     except FileNotFoundError:
-        refresh_token = input(f"No token file found. Please enter a valid {HEALTH_API_PROVIDER} refresh token : ")
+        if sys.stdin.isatty():
+            refresh_token = input(f"No token file found. Please enter a valid {HEALTH_API_PROVIDER} refresh token : ")
+        else:
+            # Headless (docker compose up -d): wait for the setup page (localhost:8000)
+            # or get_google_token.py to write the token file, instead of crashing on
+            # EOF from input() and restart-looping.
+            logging.info("No token file yet — connect via the setup page at http://localhost:8000 (checking every 30s).")
+            while not os.path.exists(TOKEN_FILE_PATH):
+                time.sleep(30)
+            access_token, refresh_token, provider_in_file = load_tokens_from_file()
 
     if HEALTH_API_PROVIDER == "fitbit":
         access_token, refresh_token, expires_in = refresh_fitbit_tokens(active_client_id, active_client_secret, refresh_token)
@@ -1718,6 +1727,37 @@ else:
 
 # %%
 # Ongoing continuous update of data
+def process_sync_request():
+    """Setup-page hook: `tokens/sync-request.json` ({"days": N}, N capped at 28 —
+    the widest single-window range every daily endpoint accepts) triggers an
+    immediate re-fetch of the last N days. Intraday HR/steps re-pull covers at
+    most the last 7 of them to bound API cost. The file is consumed either way."""
+    global collected_records
+    req_path = os.path.join(os.path.dirname(TOKEN_FILE_PATH), "sync-request.json")
+    if not os.path.exists(req_path):
+        return
+    try:
+        with open(req_path) as fh:
+            days = max(1, min(int(json.load(fh).get("days", 2)), 28))
+    except (ValueError, TypeError, json.JSONDecodeError):
+        days = 2
+    os.remove(req_path)
+    end = datetime.today()
+    start_str = (end - timedelta(days=days)).strftime("%Y-%m-%d")
+    end_str = end.strftime("%Y-%m-%d")
+    logging.info("Sync request from setup page: fetching %s to %s", start_str, end_str)
+    fetch_latest_activities(end_str)
+    get_daily_data_limit_none(start_str, end_str)
+    get_daily_data_limit_365d(start_str, end_str)
+    get_daily_data_limit_100d(start_str, end_str)
+    get_daily_data_limit_30d(start_str, end_str)
+    for offset in range(min(days, 7) + 1):
+        day = (end - timedelta(days=offset)).strftime("%Y-%m-%d")
+        get_intraday_data_limit_1d(day, [('heart', 'HeartRate_Intraday', '1sec'),
+                                         ('steps', 'Steps_Intraday', '1min')])
+    logging.info("Sync request complete: %s to %s", start_str, end_str)
+
+
 if SCHEDULE_AUTO_UPDATE:
     
     schedule.every(15).minutes.do(ensure_fresh_access_token) # Refresh the access token before it expires
@@ -1732,6 +1772,7 @@ if SCHEDULE_AUTO_UPDATE:
 
     while True:
         schedule.run_pending()
+        process_sync_request()
         if len(collected_records) != 0:
             write_points_to_influxdb(collected_records)
             collected_records = []

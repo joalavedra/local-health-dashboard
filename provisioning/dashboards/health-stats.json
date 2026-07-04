@@ -25,7 +25,16 @@
  "fiscalYearStartMonth": 0,
  "graphTooltip": 0,
  "id": null,
- "links": [],
+ "links": [
+  {
+   "title": "Connect & Sync",
+   "type": "link",
+   "url": "http://localhost:8000",
+   "icon": "bolt",
+   "tooltip": "Connect your Google account or trigger a re-sync",
+   "targetBlank": true
+  }
+ ],
  "panels": [
   {
    "collapsed": false,

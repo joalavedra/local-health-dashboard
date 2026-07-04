@@ -42,24 +42,25 @@ production** — apps left in "Testing" status get refresh tokens that expire ev
 7 days, which silently kills the sync. (Your app stays unverified; you just click
 through one warning at sign-in.)
 
-**2. Configure and sign in:**
+**2. Launch:**
 
 ```bash
 cp .env.example .env      # fill in GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
-python3 get_google_token.py
-```
-
-Your browser opens Google's consent page; the token lands in `tokens/fitbit.token`.
-
-**3. Launch:**
-
-```bash
 mkdir -p logs tokens && docker compose up -d
 ```
 
-Open **http://localhost:3000** (admin / admin). The InfluxDB datasource and the
-dashboard are provisioned automatically — data appears as the first sync lands
-(every ~2 hours for recent data; scores recompute hourly).
+**3. Connect:** open **http://localhost:8000** and click **Connect Google Health**.
+Your browser runs Google's consent flow; on success a 28-day backfill is queued
+automatically. The same page shows token/data health and has re-sync and backfill
+buttons whenever you want fresh data.
+
+Then open the dashboard at **http://localhost:3000** (admin / admin) — the InfluxDB
+datasource and dashboard are provisioned automatically, and its header links back to
+the Connect & Sync page. Data keeps flowing on a schedule (recent data every few
+minutes, daily series every few hours; scores recompute hourly).
+
+Headless machine with no browser? `python3 get_google_token.py` on any computer
+writes `tokens/fitbit.token`; copy it over.
 
 If InfluxDB fails to start on a permission error: `sudo chown -R 1500:1500 influxdb`.
 The `logs`/`tokens` folders must be writable by uid 1000 (the fetcher container user).
