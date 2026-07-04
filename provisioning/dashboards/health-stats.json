@@ -54,6 +54,60 @@
     "type": "influxdb",
     "uid": "health-stats-influx"
    },
+   "description": "Rule-based conclusions regenerated hourly from the scores below \u2014 each sentence maps to one metric. Not medical advice.",
+   "fieldConfig": {
+    "defaults": {
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text"
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 24,
+    "x": 0,
+    "y": 1
+   },
+   "id": 223,
+   "options": {
+    "colorMode": "none",
+    "graphMode": "none",
+    "justifyMode": "center",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "/^last$/"
+    },
+    "textMode": "value"
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "influxdb",
+      "uid": "health-stats-influx"
+     },
+     "query": "SELECT last(\"text\") FROM \"Insight\"",
+     "rawQuery": true,
+     "refId": "A",
+     "resultFormat": "table"
+    }
+   ],
+   "title": "Today's read",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "influxdb",
+    "uid": "health-stats-influx"
+   },
    "description": "WHOOP-style recovery (0-100) from HRV vs your baseline (60%), resting HR (20%), sleep (15%), respiration (5%). Cold-starts until 4 baseline nights.",
    "fieldConfig": {
     "defaults": {
@@ -88,7 +142,7 @@
     "h": 7,
     "w": 4,
     "x": 0,
-    "y": 1
+    "y": 5
    },
    "id": 201,
    "options": {
@@ -192,7 +246,7 @@
     "h": 7,
     "w": 4,
     "x": 4,
-    "y": 1
+    "y": 5
    },
    "id": 203,
    "options": {
@@ -296,7 +350,7 @@
     "h": 7,
     "w": 4,
     "x": 8,
-    "y": 1
+    "y": 5
    },
    "id": 206,
    "options": {
@@ -381,7 +435,7 @@
     "h": 7,
     "w": 4,
     "x": 12,
-    "y": 1
+    "y": 5
    },
    "id": 209,
    "options": {
@@ -474,7 +528,7 @@
     "h": 7,
     "w": 4,
     "x": 16,
-    "y": 1
+    "y": 5
    },
    "id": 210,
    "options": {
@@ -573,7 +627,7 @@
     "h": 7,
     "w": 4,
     "x": 20,
-    "y": 1
+    "y": 5
    },
    "hideTimeOverride": true,
    "id": 65,
@@ -667,7 +721,7 @@
     "h": 7,
     "w": 4,
     "x": 0,
-    "y": 8
+    "y": 12
    },
    "id": 50,
    "options": {
@@ -779,7 +833,7 @@
     "h": 7,
     "w": 4,
     "x": 4,
-    "y": 8
+    "y": 12
    },
    "id": 211,
    "options": {
@@ -887,7 +941,7 @@
     "h": 7,
     "w": 4,
     "x": 8,
-    "y": 8
+    "y": 12
    },
    "id": 27,
    "options": {
@@ -983,7 +1037,7 @@
     "h": 7,
     "w": 4,
     "x": 12,
-    "y": 8
+    "y": 12
    },
    "id": 37,
    "options": {
@@ -1099,7 +1153,7 @@
     "h": 7,
     "w": 4,
     "x": 16,
-    "y": 8
+    "y": 12
    },
    "id": 30,
    "options": {
@@ -1211,7 +1265,7 @@
     "h": 7,
     "w": 4,
     "x": 20,
-    "y": 8
+    "y": 12
    },
    "id": 212,
    "options": {
@@ -1317,7 +1371,7 @@
     "h": 1,
     "w": 24,
     "x": 0,
-    "y": 15
+    "y": 19
    },
    "id": 220,
    "panels": [],
@@ -1401,7 +1455,7 @@
     "h": 8,
     "w": 12,
     "x": 0,
-    "y": 16
+    "y": 20
    },
    "id": 66,
    "options": {
@@ -1612,7 +1666,7 @@
     "h": 8,
     "w": 12,
     "x": 12,
-    "y": 16
+    "y": 20
    },
    "hideTimeOverride": true,
    "id": 39,
@@ -1765,7 +1819,7 @@
     "h": 8,
     "w": 8,
     "x": 0,
-    "y": 24
+    "y": 28
    },
    "id": 75,
    "options": {
@@ -2024,7 +2078,7 @@
     "h": 8,
     "w": 8,
     "x": 8,
-    "y": 24
+    "y": 28
    },
    "hideTimeOverride": true,
    "id": 36,
@@ -2167,7 +2221,7 @@
     "h": 8,
     "w": 8,
     "x": 16,
-    "y": 24
+    "y": 28
    },
    "hideTimeOverride": true,
    "id": 67,
@@ -2361,7 +2415,7 @@
     "h": 8,
     "w": 12,
     "x": 0,
-    "y": 32
+    "y": 36
    },
    "id": 90,
    "options": {
@@ -2561,7 +2615,7 @@
     "h": 8,
     "w": 12,
     "x": 12,
-    "y": 32
+    "y": 36
    },
    "id": 15,
    "options": {
@@ -2726,7 +2780,7 @@
     "h": 1,
     "w": 24,
     "x": 0,
-    "y": 40
+    "y": 44
    },
    "id": 221,
    "panels": [],
@@ -2786,7 +2840,7 @@
     "h": 8,
     "w": 8,
     "x": 0,
-    "y": 41
+    "y": 45
    },
    "id": 202,
    "options": {
@@ -2909,7 +2963,7 @@
     "h": 8,
     "w": 8,
     "x": 8,
-    "y": 41
+    "y": 45
    },
    "id": 204,
    "options": {
@@ -3026,7 +3080,7 @@
     "h": 8,
     "w": 8,
     "x": 16,
-    "y": 41
+    "y": 45
    },
    "id": 207,
    "options": {
@@ -3121,7 +3175,7 @@
     "h": 8,
     "w": 8,
     "x": 0,
-    "y": 49
+    "y": 53
    },
    "id": 213,
    "options": {
@@ -3242,7 +3296,7 @@
     "h": 8,
     "w": 8,
     "x": 8,
-    "y": 49
+    "y": 53
    },
    "id": 214,
    "options": {
@@ -3386,7 +3440,7 @@
     "h": 8,
     "w": 8,
     "x": 16,
-    "y": 49
+    "y": 53
    },
    "id": 208,
    "options": {
@@ -3619,7 +3673,7 @@
     "h": 8,
     "w": 8,
     "x": 0,
-    "y": 57
+    "y": 61
    },
    "id": 32,
    "options": {
@@ -3985,7 +4039,7 @@
     "h": 8,
     "w": 8,
     "x": 8,
-    "y": 57
+    "y": 61
    },
    "id": 35,
    "options": {
@@ -4190,7 +4244,7 @@
     "h": 8,
     "w": 8,
     "x": 16,
-    "y": 57
+    "y": 61
    },
    "id": 215,
    "options": {
@@ -4381,7 +4435,7 @@
     "h": 8,
     "w": 8,
     "x": 0,
-    "y": 65
+    "y": 69
    },
    "id": 7,
    "options": {
@@ -4558,7 +4612,7 @@
     "h": 8,
     "w": 8,
     "x": 8,
-    "y": 65
+    "y": 69
    },
    "id": 5,
    "options": {
@@ -4669,7 +4723,7 @@
     "h": 8,
     "w": 8,
     "x": 16,
-    "y": 65
+    "y": 69
    },
    "id": 216,
    "options": {
@@ -4836,7 +4890,7 @@
     "h": 8,
     "w": 8,
     "x": 0,
-    "y": 73
+    "y": 77
    },
    "id": 44,
    "options": {
@@ -5101,7 +5155,7 @@
     "h": 8,
     "w": 8,
     "x": 8,
-    "y": 73
+    "y": 77
    },
    "id": 45,
    "options": {
@@ -5265,7 +5319,7 @@
     "h": 8,
     "w": 8,
     "x": 16,
-    "y": 73
+    "y": 77
    },
    "id": 48,
    "options": {
@@ -5532,7 +5586,7 @@
     "h": 9,
     "w": 12,
     "x": 0,
-    "y": 81
+    "y": 85
    },
    "id": 42,
    "options": {
@@ -5668,7 +5722,7 @@
     "h": 9,
     "w": 12,
     "x": 12,
-    "y": 81
+    "y": 85
    },
    "id": 29,
    "options": {
@@ -5787,7 +5841,7 @@
     "h": 9,
     "w": 12,
     "x": 0,
-    "y": 90
+    "y": 94
    },
    "id": 17,
    "options": {
@@ -5898,7 +5952,7 @@
     "h": 9,
     "w": 12,
     "x": 12,
-    "y": 90
+    "y": 94
    },
    "id": 23,
    "options": {
@@ -5979,7 +6033,7 @@
     "h": 1,
     "w": 24,
     "x": 0,
-    "y": 99
+    "y": 103
    },
    "id": 222,
    "panels": [],
@@ -6063,7 +6117,7 @@
     "h": 8,
     "w": 9,
     "x": 0,
-    "y": 100
+    "y": 104
    },
    "id": 217,
    "options": {
@@ -6245,7 +6299,7 @@
     "h": 8,
     "w": 9,
     "x": 9,
-    "y": 100
+    "y": 104
    },
    "id": 218,
    "options": {
@@ -6408,7 +6462,7 @@
     "h": 8,
     "w": 6,
     "x": 18,
-    "y": 100
+    "y": 104
    },
    "id": 9,
    "options": {
@@ -6572,7 +6626,7 @@
     "h": 9,
     "w": 24,
     "x": 0,
-    "y": 108
+    "y": 112
    },
    "id": 34,
    "options": {
@@ -6665,6 +6719,6 @@
  "timezone": "browser",
  "title": "Fitbit Stats",
  "uid": "_cl7FMC4z",
- "version": 10,
+ "version": 11,
  "weekStart": ""
 }

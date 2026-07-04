@@ -247,6 +247,40 @@ def forecast(recoveries: list[float], strains: list[float], sleep_hours: list[fl
     return round(value, 1), round(band, 1)
 
 
+def build_insight(recs: list[float], forecast_now, debt_h, ill, fa, strains: list[float]) -> str:
+    """Plain-language conclusions inferred from the current numbers — regenerated
+    on every run so the dashboard text never goes stale. Rule-based and factual;
+    each sentence maps to one visible metric."""
+    parts = []
+    if recs:
+        last, mean7 = recs[-1], sum(recs[-7:]) / len(recs[-7:])
+        trend = ("above" if last > mean7 + 5 else "below" if last < mean7 - 5 else "in line with")
+        parts.append(f"Recovery is {last:.0f}, {trend} your 7-day average of {mean7:.0f}.")
+    if forecast_now is not None:
+        parts.append(f"Tomorrow morning projects around {forecast_now:.0f}.")
+    if debt_h is not None:
+        if debt_h <= -6:
+            parts.append(f"You are carrying {-debt_h:.0f} h of sleep debt over the last two weeks — "
+                         "the biggest lever on the board right now.")
+        elif debt_h <= -2:
+            parts.append(f"Sleep debt sits at {-debt_h:.1f} h; a couple of early nights clears it.")
+        else:
+            parts.append("Sleep is on target.")
+    if ill is not None:
+        level = {0: "No illness signals — your body signals sit inside their normal range.",
+                 1: "Mild multi-signal anomaly — nothing alarming, worth a calmer day.",
+                 2: "Heads-up: multiple body signals are elevated vs your baseline — consider taking it easy."}
+        parts.append(level[ill])
+    if fa is not None and abs(fa[1]) >= 1:
+        parts.append(f"Fitness age {fa[0]:.0f} — {abs(fa[1]):.0f} years "
+                     f"{'younger' if fa[1] > 0 else 'older'} than your calendar age.")
+    if strains:
+        active = [s for s in strains[-7:] if s * STRAIN_TO_100 >= 30.0]
+        if not active:
+            parts.append("No real training load this week — recovery capacity is going unused.")
+    return " ".join(parts) or "Not enough data yet — conclusions appear as history accrues."
+
+
 def sleep_debt(series: list[tuple[str, float]]):
     """SleepDebt: per day, the net balance (minutes) of the last <=14 usable
     nights' (slept - need). Returns {day: (balance_min, delta_min)}."""
@@ -361,6 +395,26 @@ def main() -> None:
             lines.append(f"RecoveryForecast,Device={dev} value={fc[0]},band={fc[1]} {ts + 86400}")
         if rec is not None or st is not None or ill is not None:
             summary.append((d, rec, st, ill[2] if ill else 0, debt.get(d, (None,))[0]))
+
+    # Daily conclusions, stamped on the latest scored day.
+    if days:
+        rec_series = [rec_by_day[x] for x in days if x in rec_by_day]
+        last_i = len(days) - 1
+        week = days[max(0, last_i - 6):]
+        fa_now = fitness_age([rhr[x] for x in week if x in rhr],
+                             [strain_by_day[x] for x in week if x in strain_by_day])
+        fc_now = forecast(rec_series,
+                          [strain_by_day[x] for x in days if x in strain_by_day],
+                          [asleep[x] / 60.0 for x in days if x in asleep])
+        debt_last = ([debt[x][0] / 60.0 for x in days if x in debt] or [None])[-1]
+        ill_last = summary[-1][3] if summary else None
+        text = build_insight(rec_series, fc_now[0] if fc_now else None, debt_last,
+                             ill_last, fa_now, [strain_by_day[x] for x in days if x in strain_by_day])
+        esc = text.replace("\\", "\\\\").replace('"', '\\"')
+        import datetime
+        ts = int(datetime.datetime.fromisoformat(days[-1] + "T12:00:00+00:00").timestamp())
+        lines.append(f'Insight,Device={dev} text="{esc}" {ts}')
+        print("insight:", text)
 
     if lines:
         write_points(lines)
