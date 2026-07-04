@@ -1,0 +1,99 @@
+# Initial setup: `cp .env.example .env`, fill in your OAuth client, run
+# `python3 get_google_token.py` once (browser sign-in → writes tokens/fitbit.token),
+# then `docker compose up -d`. Grafana comes up on http://localhost:3000 (admin/admin)
+# with the datasource and dashboard pre-provisioned. See README.md.
+# Make sure the mapped logs and tokens folders exist and are owned by uid 1000,
+# otherwise you may get permission denied errors.
+# This compose file creates an open read/write access influxdb database with no authentication. You may enable authentication and grant appropriate read/write access to the `fitbit_user` on the `FitbitHealthStats` database manually if you want with additional `INFLUXDB_ADMIN_ENABLED`, `INFLUXDB_ADMIN_USER`, and `INFLUXDB_ADMIN_PASSWORD` ENV variables following influxdb 1.8 guidelines.
+services:
+  fitbit-fetch-data:
+    restart: unless-stopped
+    build: .
+    image: fitbit-fetch-data-local:patched
+    container_name: fitbit-fetch-data
+    volumes:
+      - ./logs:/app/logs # logs folder should exist and owned by user id 1500 for influxdb v1.11
+      - ./tokens:/app/tokens # tokens folder should esist and owned by user id 1500 for influxdb v1.11
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      - FITBIT_LOG_FILE_PATH=/app/logs/fitbit.log
+      - TOKEN_FILE_PATH=/app/tokens/fitbit.token
+      - LOG_LEVEL=DEBUG # Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL
+      - HEALTH_API_PROVIDER=google # Supported values: fitbit or google. Fitbit Web API shuts down Sept 2026.
+      - AUTO_DATE_RANGE=True # Switch between regular update and bulk update mode, read Historical Data Update section in README
+      - INFLUXDB_VERSION=1 # supports 1 or 2 or 3
+      - INFLUXDB_HOST=influxdb # for influxdb 1.x and 3.x
+      - INFLUXDB_PORT=8086 # for influxdb 1.x and 3.x
+      # Variables for influxdb 3.x ( additionally you need to change the influxdb container image to 3.x below )
+      # - INFLUXDB_V3_ACCESS_TOKEN=your_influxdb_admin_access_token # Required for influxdb V3 (ignored for V1 and V2), Set this to your admin access token (or a token that has database R/W access) - Check README installation notes under point 3 to generate this. 
+      # Variables for influxdb 2.x ( additionally you need to change the influxdb container image to 2.x below )
+      # - INFLUXDB_BUCKET=your_bucket_name_here # for influxdb 2.x
+      # - INFLUXDB_ORG=your_org_here # for influxdb 2.x
+      # - INFLUXDB_TOKEN=your_token_here # for influxdb 2.x
+      # - INFLUXDB_URL=your_influxdb_server_location_with_port_here # for influxdb 2.x
+      # Variables for influxdb 1.x
+      - INFLUXDB_USERNAME=fitbit_user # for influxdb 1.x
+      - INFLUXDB_PASSWORD=fitbit_password # for influxdb 1.x
+      - INFLUXDB_DATABASE=FitbitHealthStats # for influxdb 1.x
+      # MAKE SURE you set the application type to PERSONAL. Otherwise, you won't have access to intraday data series, resulting in 40X errors.
+      # Google Health API OAuth credentials (used when HEALTH_API_PROVIDER=google)
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID} # set in .env
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET} # set in .env
+      - DEVICENAME=${DEVICENAME} # e.g. "Charge5", set in .env
+      - LOCAL_TIMEZONE=Automatic # set to "Automatic" for Automatic setup from User profile (if not mentioned here specifically). 
+    depends_on:
+      - influxdb
+
+  # Derived scores (Recovery, Strain, illness heads-up, vital bands, sleep debt) —
+  # recomputed hourly from whatever the fetcher has landed in InfluxDB.
+  compute-metrics:
+    restart: unless-stopped
+    build: .
+    image: fitbit-fetch-data-local:patched
+    container_name: compute-metrics
+    command: ["sh", "-c", "while true; do python compute_metrics.py; sleep 3600; done"]
+    environment:
+      - INFLUX_URL=http://influxdb:8086
+      - DEVICENAME=${DEVICENAME}
+    depends_on:
+      - influxdb
+
+  # We are using influxdb 1.8 in this stack (tested and optimized - better dashboard support)
+  influxdb:
+    restart: unless-stopped
+    container_name: influxdb
+    hostname: influxdb
+    environment:
+      - INFLUXDB_DB=FitbitHealthStats
+      - INFLUXDB_USER=fitbit_user
+      - INFLUXDB_USER_PASSWORD=fitbit_password
+      - INFLUXDB_DATA_INDEX_VERSION=tsi1
+      ###############################################################################
+      # The following ENV variables are applicable for InfluxDB V3 - No effect for V1
+      ###############################################################################
+      # - INFLUXDB3_MAX_HTTP_REQUEST_SIZE=10485760
+      # - INFLUXDB3_NODE_IDENTIFIER_PREFIX=Influxdb-node1
+      # - INFLUXDB3_BUCKET=GarminStats
+      # - INFLUXDB3_OBJECT_STORE=file
+      # - INFLUXDB3_DB_DIR=/data
+      # - INFLUXDB3_QUERY_FILE_LIMIT=5000 # this set to be a very high value if you want to view long term data
+    ports:
+      - '8086:8086' # Influxdb V3 should map as "8181:8181" (Change INFLUXDB_PORT to 8181 on fitbit-fetch-data appropriately for InfluxDB V3)
+    volumes:
+      - ./influxdb:/var/lib/influxdb # InfluxDB V3 bind mount should be set like - ./influxdb:/data if you set INFLUXDB3_DB_DIR=/data (instead of /var/lib/influxdb) - must be owned by 1500:1500 for influxdb v1.11
+    image: 'influxdb:1.11' # You must change this to 'quay.io/influxdb/influxdb3-core:latest' for influxdb V3
+
+  grafana:
+    restart: unless-stopped
+    container_name: grafana
+    hostname: grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_PLUGINS_PREINSTALL=marcusolsson-hourly-heatmap-panel
+    volumes:
+      - './grafana:/var/lib/grafana' # Must be owned by 472:472
+      - './provisioning:/etc/grafana/provisioning' # datasource + dashboard auto-load
+    ports:
+      - '3000:3000'
+    image: 'grafana/grafana:latest'

@@ -1,0 +1,9 @@
+.venv
+__pycache__/
+# local secrets and data
+.env
+/logs/
+/tokens/
+/influxdb/
+/grafana/
+/compose.override.yml

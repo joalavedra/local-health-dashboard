@@ -1,0 +1,9 @@
+.git
+.env
+logs/
+tokens/
+influxdb/
+grafana/
+extra/
+provisioning/
+README.md
