@@ -54,6 +54,22 @@ BAND_SIGMA_K = 2.0
 BAND_FLOORS = {"resting_hr": 2.0, "hrv": 5.0, "resp_rate": 0.5, "skin_temp_dev": 0.3}
 # Sleep debt (SleepDebt): 14-night ledger vs an 8 h need
 SLEEP_NEED_MIN, SLEEP_DEBT_WINDOW = 8.0 * 60.0, 14
+# Fitness age (FitnessAgeEngine — Nes 2011 HUNT model inverted self-consistently;
+# the waist/body term cancels, so only age, sex, resting HR and activity matter).
+# A fitness comparison vs an average peer, never a "biological age" claim.
+FA_COEFFS = {"male": (0.296, 0.155, 0.226), "female": (0.247, 0.114, 0.198)}  # ageC, rhrC, paiC
+FA_RHR_REF, FA_PAI_REF = 65.0, 5.0
+FA_MIN_AGE, FA_MAX_AGE = 20.0, 80.0
+FA_MIN_RHR_DAYS = 4  # of the last 7 nights
+STRAIN_TO_100 = 100.0 / MAX_STRAIN  # our Strain is 0-21; NOOP v8 Effort is 0-100
+USER_AGE = float(os.environ.get("USER_AGE") or 30)
+USER_SEX = (os.environ.get("USER_SEX") or "male").lower()
+# Recovery forecast (RecoveryForecaster): tomorrow-morning recovery estimate
+FC_WINDOW, FC_MIN_NIGHTS, FC_TRUSTED_NIGHTS = 14, 5, 10
+FC_STRAIN_W, FC_EFFORT_SPREAD, FC_STRAIN_CAP = 9.0, 12.0, 12.0
+FC_SLEEP_W, FC_SLEEP_OVER_CAP = 14.0, 0.25
+FC_REVERSION_W, FC_REVERSION_CAP = 1.0, 8.0
+FC_MIN_BAND, FC_THIN_BAND = 8.0, 6.0
 
 
 # --------------------------------------------------------------------------- #
@@ -181,6 +197,56 @@ def vital_band(value: float | None, base):
     return lo, hi, in_range
 
 
+def fitness_age(rhr7: list[float], strains7: list[float]):
+    """FitnessAgeEngine: Fitness Age = age + (rhrC*(RHR-65) - paiC*(PAI-5)) / ageC,
+    clamped [20, 80]. RHR is the 7-night median; the HUNT PA-index is reconstructed
+    from Strain (active day = effort >= 30/100; intensity*duration = mean active
+    effort / 30, capped at 3). Returns (fitness_age, delta_years — positive means
+    younger than your calendar age) or None under 4 RHR nights."""
+    if len(rhr7) < FA_MIN_RHR_DAYS:
+        return None
+    rhr_med = sorted(rhr7)[len(rhr7) // 2]
+    active = [s * STRAIN_TO_100 for s in strains7 if s * STRAIN_TO_100 >= 30.0]
+    freq = {0: 0.0, 1: 0.5, 2: 1.0, 3: 2.5, 4: 2.5}.get(len(active), 5.0)
+    pai = freq * min(3.0, (sum(active) / len(active)) / 30.0) if active else 0.0
+    age_c, rhr_c, pai_c = FA_COEFFS.get(USER_SEX, FA_COEFFS["male"])
+    fa = USER_AGE + (rhr_c * (rhr_med - FA_RHR_REF) - pai_c * (pai - FA_PAI_REF)) / age_c
+    fa = min(FA_MAX_AGE, max(FA_MIN_AGE, fa))
+    return round(fa, 1), round(USER_AGE - fa, 1)
+
+
+def forecast(recoveries: list[float], strains: list[float], sleep_hours: list[float]):
+    """RecoveryForecaster: tomorrow-morning recovery = 14-night baseline mean plus
+    three signed nudges — strain debt (today's effort vs recent average), sleep
+    adequacy, and mean reversion against the recent slope — with an honest ± band
+    (recent SD, floored, inflated while history is thin). Divergence from NOOP:
+    'planned sleep tonight' isn't knowable here, so the 14-night average sleep
+    stands in. Returns (value, band) or None under 5 recovery nights."""
+    rec = recoveries[-FC_WINDOW:]
+    if len(rec) < FC_MIN_NIGHTS:
+        return None
+    center = sum(rec) / len(rec)
+    adj_strain = 0.0
+    eff = [s * STRAIN_TO_100 for s in strains[-FC_WINDOW:]]
+    if eff:
+        excess = FC_STRAIN_W * (eff[-1] - sum(eff) / len(eff)) / FC_EFFORT_SPREAD
+        adj_strain = -max(-FC_STRAIN_CAP, min(FC_STRAIN_CAP, excess))
+    adj_sleep = 0.0
+    if sleep_hours:
+        window = sleep_hours[-FC_WINDOW:]
+        planned = sum(window) / len(window)
+        adj_sleep = FC_SLEEP_W * max(-1.0, min(FC_SLEEP_OVER_CAP,
+                                               planned / (SLEEP_NEED_MIN / 60.0) - 1.0))
+    n = len(rec)
+    xm = (n - 1) / 2
+    slope = sum((i - xm) * (rec[i] - center) for i in range(n)) / sum((i - xm) ** 2 for i in range(n))
+    adj_revert = -max(-FC_REVERSION_CAP, min(FC_REVERSION_CAP, FC_REVERSION_W * slope))
+    value = max(0.0, min(100.0, center + adj_strain + adj_sleep + adj_revert))
+    sd = (sum((r - center) ** 2 for r in rec) / (n - 1)) ** 0.5 if n >= 2 else 0.0
+    band = max(FC_MIN_BAND, sd) + (FC_THIN_BAND if n < FC_TRUSTED_NIGHTS else 0.0)
+    return round(value, 1), round(band, 1)
+
+
 def sleep_debt(series: list[tuple[str, float]]):
     """SleepDebt: per day, the net balance (minutes) of the last <=14 usable
     nights' (slept - need). Returns {day: (balance_min, delta_min)}."""
@@ -227,6 +293,10 @@ def main() -> None:
     dev = DEVICE.replace(" ", "\\ ")
     lines: list[str] = []
     summary = []
+    # Strain beyond the 21-day intraday window comes from what earlier runs wrote;
+    # fresh in-loop values overwrite. Recoveries accumulate in-loop for the forecast.
+    strain_by_day = daily("Strain", "value")
+    rec_by_day: dict[str, float] = {}
 
     def recent2(vals: dict[str, float], i: int):
         """Mean over the last two days ending at days[i] (IllnessSignalEngine's recent window)."""
@@ -243,6 +313,10 @@ def main() -> None:
 
         rec = recovery(hrv.get(d), rhr.get(d), resp.get(d), sleep_perf, hb, rb, pb, hrv_usable) if d in hrv else None
         st = strain(hr_days.get(d, []), DEFAULT_MAX_HR, rhr.get(d, 60.0))
+        if rec is not None:
+            rec_by_day[d] = rec
+        if st is not None:
+            strain_by_day[d] = st
 
         # Illness windows per IllnessSignalEngine: recent = last 2 days, baseline = the
         # ~28 days ending 3 days ago (so the anomaly can't contaminate its own baseline).
@@ -273,6 +347,18 @@ def main() -> None:
         if d in debt:
             balance, delta = debt[d]
             lines.append(f"SleepDebt,Device={dev} balance_min={balance:.1f},delta_min={delta:.1f} {ts}")
+        week = days[max(0, i - 6): i + 1]
+        fa = fitness_age([rhr[x] for x in week if x in rhr],
+                         [strain_by_day[x] for x in week if x in strain_by_day])
+        if fa is not None:
+            lines.append(f"FitnessAge,Device={dev} value={fa[0]},delta={fa[1]} {ts}")
+        # Forecast made ON day d predicts d+1 morning — written at d+1 so it overlays
+        # the actual Recovery it tried to predict.
+        fc = forecast([rec_by_day[x] for x in days[: i + 1] if x in rec_by_day],
+                      [strain_by_day[x] for x in days[: i + 1] if x in strain_by_day],
+                      [asleep[x] / 60.0 for x in days[: i + 1] if x in asleep])
+        if fc is not None:
+            lines.append(f"RecoveryForecast,Device={dev} value={fc[0]},band={fc[1]} {ts + 86400}")
         if rec is not None or st is not None or ill is not None:
             summary.append((d, rec, st, ill[2] if ill else 0, debt.get(d, (None,))[0]))
 

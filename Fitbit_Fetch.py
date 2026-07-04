@@ -443,6 +443,28 @@ def record_google_skin_temperature(start_date_str, end_date_str):
     logging.info("Recorded Skin Temperature Variation (Google mode) for %s to %s: %s points", start_date_str, end_date_str, inserted)
 
 
+def record_google_vo2max(start_date_str, end_date_str):
+    # daily-vo2-max: the device's cardio-fitness score (ml/kg/min).
+    try:
+        points = get_google_datapoints_for_date_range("daily-vo2-max", start_date_str, end_date_str)
+    except requests.exceptions.HTTPError as err:
+        logging.error("Google VO2max fetch failed for %s to %s: %s", start_date_str, end_date_str, str(err))
+        return
+    inserted = 0
+    for data_point, ts in points:
+        value = extract_first_numeric(data_point.get("dailyVo2Max", {}).get("vo2Max"))
+        if value is None:
+            continue
+        collected_records.append({
+            "measurement": "VO2Max",
+            "time": ts,
+            "tags": {"Device": DEVICENAME},
+            "fields": {"value": value},
+        })
+        inserted += 1
+    logging.info("Recorded VO2Max (Google mode) for %s to %s: %s points", start_date_str, end_date_str, inserted)
+
+
 def record_google_breathing_rate(start_date_str, end_date_str):
     try:
         points = get_google_datapoints_for_date_range("daily-respiratory-rate", start_date_str, end_date_str)
@@ -1141,6 +1163,7 @@ def get_daily_data_limit_30d(start_date_str, end_date_str):
         record_google_spo2_intraday(start_date_str, end_date_str)
         record_google_weight(start_date_str, end_date_str)
         record_google_skin_temperature(start_date_str, end_date_str)
+        record_google_vo2max(start_date_str, end_date_str)
         return
 
     hrv_data_list = request_data_from_fitbit(f"{FITBIT_API_BASE_URL}/1/user/-/hrv/date/{start_date_str}/{end_date_str}.json").get('hrv')

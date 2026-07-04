@@ -75,6 +75,8 @@ services:
     environment:
       - INFLUX_URL=http://influxdb:8086
       - DEVICENAME=${DEVICENAME}
+      - USER_AGE=${USER_AGE:-30} # drives Fitness Age; set your real age in .env
+      - USER_SEX=${USER_SEX:-male} # male | female (sex-specific published coefficients)
     depends_on:
       - influxdb
 
