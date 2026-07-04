@@ -8,6 +8,14 @@ Strain, an illness early-warning, personal vital ranges, and a sleep-debt ledger
 Everything runs on your machine. Your health data never leaves it — the only network
 calls are read-only pulls from your own Google account.
 
+![Control Center](docs/screenshots/control-center.png)
+
+<details><summary>History & Algorithms section</summary>
+
+![History](docs/screenshots/history.png)
+
+</details>
+
 > [!IMPORTANT]
 > *Fitbit is a registered trademark of Google LLC. Grafana is a registered trademark of
 > Grafana Labs. This is an independent, open-source tool, not affiliated with or endorsed
@@ -27,6 +35,11 @@ calls are read-only pulls from your own Google account.
 - **Personal vital bands** — your own normal range drawn behind resting HR and HRV,
   instead of population cutoffs.
 - **Sleep debt** — a rolling 14-night ledger of slept-vs-need.
+- **Fitness Age & Body Age** — a Nes-2011 fitness comparison and a mortality-hazard
+  "Body Age" (the WHOOP-Age method), each with a per-factor "why" breakdown.
+- **Tomorrow's recovery forecast** — an evening estimate with an honest ± band,
+  charted against what actually happened.
+- **"Today's read"** — a rule-based plain-language summary regenerated hourly.
 
 Baselines are personal and honest: scores cold-start until enough nights exist
 (4 for Recovery, 14 for the illness watch and bands).

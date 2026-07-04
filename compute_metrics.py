@@ -64,6 +64,14 @@ FA_MIN_RHR_DAYS = 4  # of the last 7 nights
 STRAIN_TO_100 = 100.0 / MAX_STRAIN  # our Strain is 0-21; NOOP v8 Effort is 0-100
 USER_AGE = float(os.environ.get("USER_AGE") or 30)
 USER_SEX = (os.environ.get("USER_SEX") or "male").lower()
+# Vitality / Body Age (VitalityEngine — WHOOP-Age method): per-factor published
+# all-cause-mortality hazard ratios vs a population reference, log-hazards summed
+# with an overlap shrink, converted to years via the Gompertz doubling time
+# (~8 y). A wellness comparison, never a clinical biological age.
+VIT_LN_PER_YEAR = math.log(2) / 8.0
+VIT_SHRINK, VIT_MIN_FACTORS, VIT_BAND = 0.75, 3, 5.0
+VIT_MIN_AGE, VIT_MAX_AGE, VIT_PER_YEAR = 20.0, 90.0, 2.5
+VIT_RMSSD_NORM = [(20, 47), (30, 40), (40, 33), (50, 29), (60, 25), (70, 22), (80, 20)]
 # Recovery forecast (RecoveryForecaster): tomorrow-morning recovery estimate
 FC_WINDOW, FC_MIN_NIGHTS, FC_TRUSTED_NIGHTS = 14, 5, 10
 FC_STRAIN_W, FC_EFFORT_SPREAD, FC_STRAIN_CAP = 9.0, 12.0, 12.0
@@ -141,19 +149,37 @@ def zscore(value: float, mean: float, spread: float) -> float:
     return (value - mean) / max(1.253 * spread, 1e-9)
 
 
+def recovery_terms(hrv, rhr, resp, sleep_perf, hrv_base, rhr_base, resp_base):
+    terms = [("hrv", zscore(hrv, hrv_base[0], hrv_base[1]), W_HRV)]
+    if rhr is not None and rhr_base:
+        terms.append(("rhr", zscore(rhr_base[0], rhr, rhr_base[1]), W_RHR))  # lower RHR -> higher
+    if resp is not None and resp_base:
+        terms.append(("resp", zscore(resp_base[0], resp, resp_base[1]), W_RESP))
+    if sleep_perf is not None:
+        terms.append(("sleep", (sleep_perf - SLEEP_CENTER) / SLEEP_SCALE, W_SLEEP))
+    return terms
+
+
+def score_terms(terms):
+    tw = sum(w for _, _, w in terms)
+    z = sum(zz * w for _, zz, w in terms) / tw
+    return max(0.0, min(100.0, 100.0 / (1.0 + math.exp(-LOGISTIC_K * (z - LOGISTIC_Z0)))))
+
+
 def recovery(hrv, rhr, resp, sleep_perf, hrv_base, rhr_base, resp_base, hrv_usable):
     if not hrv_usable or hrv_base is None:
         return None
-    terms = [(zscore(hrv, hrv_base[0], hrv_base[1]), W_HRV)]
-    if rhr is not None and rhr_base:
-        terms.append((zscore(rhr_base[0], rhr, rhr_base[1]), W_RHR))  # lower RHR -> higher
-    if resp is not None and resp_base:
-        terms.append((zscore(resp_base[0], resp, resp_base[1]), W_RESP))
-    if sleep_perf is not None:
-        terms.append(((sleep_perf - SLEEP_CENTER) / SLEEP_SCALE, W_SLEEP))
-    tw = sum(w for _, w in terms)
-    z = sum(zz * w for zz, w in terms) / tw
-    return max(0.0, min(100.0, 100.0 / (1.0 + math.exp(-LOGISTIC_K * (z - LOGISTIC_Z0)))))
+    return score_terms(recovery_terms(hrv, rhr, resp, sleep_perf, hrv_base, rhr_base, resp_base))
+
+
+def recovery_drivers(terms):
+    """ChargeDrivers-style 'why is my recovery X': leave-one-out attribution —
+    each factor's points = full score minus the score computed without it."""
+    if len(terms) < 2:
+        return {}
+    full = score_terms(terms)
+    return {k: round(full - score_terms([t for t in terms if t[0] != k]), 1)
+            for k, _, _ in terms}
 
 
 def illness(recent: dict[str, float | None], bases: dict[str, tuple | None]):
@@ -247,6 +273,56 @@ def forecast(recoveries: list[float], strains: list[float], sleep_hours: list[fl
     return round(value, 1), round(band, 1)
 
 
+def rmssd_norm(age: float) -> float:
+    """Nocturnal RMSSD ~50th percentile by age, piecewise-linear between anchors."""
+    a = VIT_RMSSD_NORM
+    if age <= a[0][0]:
+        return a[0][1]
+    for i in range(1, len(a)):
+        if age <= a[i][0]:
+            (a0, v0), (a1, v1) = a[i - 1], a[i]
+            return v0 + (v1 - v0) * (age - a0) / (a1 - a0)
+    return a[-1][1]
+
+
+def vitality(rhr14, hrv14, sleep_h14, steps14, vo2_last):
+    """VitalityEngine: 0-100 Vitality + Body Age from up to 6 wearable factors.
+    Returns (vitality, body_age, delta_years, {factor: years}) or None under 3
+    factors. Positive years in the breakdown = ages you; negative = protective."""
+    def clamp(v, lo, hi):
+        return min(hi, max(lo, v))
+    contribs = {}
+    if rhr14:
+        contribs["rhr"] = ((sum(rhr14) / len(rhr14) - 65) / 10) * 0.100
+    if vo2_last is not None:
+        # Reference: the Nes-expected VO2max of an average peer isn't modeled here;
+        # NOOP passes it from profile norms. Skipped until a norm table is added,
+        # so this factor stays out of the sum (honest omission, not a zero).
+        pass
+    if sleep_h14:
+        dev = max(0.0, abs(sum(sleep_h14) / len(sleep_h14) - 7.5) - 0.5)
+        contribs["sleep"] = clamp(dev, 0, 3) * 0.110
+    good = [h for h in sleep_h14 if h > 0]
+    if len(good) >= 3:
+        mean = sum(good) / len(good)
+        cv = (sum((h - mean) ** 2 for h in good) / len(good)) ** 0.5 / mean
+        contribs["consistency"] = (0.75 - clamp(1 - cv, 0, 1)) * 0.450
+    if hrv14:
+        norm = rmssd_norm(USER_AGE)
+        contribs["hrv"] = clamp((norm - sum(hrv14) / len(hrv14)) / norm, -1, 1) * 0.160
+    if steps14:
+        deficit = (7000 - clamp(sum(steps14) / len(steps14), 0, 11000)) / 1000
+        contribs["steps"] = clamp(deficit, -4, 4) * 0.064
+    if len(contribs) < VIT_MIN_FACTORS:
+        return None
+    delta_age = sum(contribs.values()) * VIT_SHRINK / VIT_LN_PER_YEAR  # +ve = ages you
+    body_age = clamp(USER_AGE + delta_age, VIT_MIN_AGE, VIT_MAX_AGE)
+    delta = USER_AGE - body_age
+    vit = clamp(50 + delta * VIT_PER_YEAR, 0, 100)
+    years = {k: round(v * VIT_SHRINK / VIT_LN_PER_YEAR, 2) for k, v in contribs.items()}
+    return round(vit, 1), round(body_age, 1), round(delta, 1), years
+
+
 def build_insight(recs: list[float], forecast_now, debt_h, ill, fa, strains: list[float]) -> str:
     """Plain-language conclusions inferred from the current numbers — regenerated
     on every run so the dashboard text never goes stale. Rule-based and factual;
@@ -317,6 +393,8 @@ def main() -> None:
     rhr = daily("RestingHR", "value")
     resp = daily("BreathingRate", "value")
     skin = daily("Skin Temperature Variation", "RelativeValue")
+    steps_d = daily("Total Steps", "value")
+    vo2 = daily("VO2Max", "value")
     asleep = daily("Sleep Summary", "minutesAsleep", "WHERE isMainSleep='True'")
     inbed = daily("Sleep Summary", "minutesInBed", "WHERE isMainSleep='True'")
     hr_days = hr_by_day(days_back=21)
@@ -393,6 +471,23 @@ def main() -> None:
                       [asleep[x] / 60.0 for x in days[: i + 1] if x in asleep])
         if fc is not None:
             lines.append(f"RecoveryForecast,Device={dev} value={fc[0]},band={fc[1]} {ts + 86400}")
+        fortnight = days[max(0, i - 13): i + 1]
+        vit = vitality([rhr[x] for x in fortnight if x in rhr],
+                       [hrv[x] for x in fortnight if x in hrv],
+                       [asleep[x] / 60.0 for x in fortnight if x in asleep],
+                       [steps_d[x] for x in fortnight if x in steps_d],
+                       vo2.get(d))
+        if vit is not None:
+            lines.append(f"Vitality,Device={dev} value={vit[0]},body_age={vit[1]},delta={vit[2]} {ts}")
+        if i == len(days) - 1:
+            # Driver breakdowns for the current day only — the "why" panels.
+            if vit is not None:
+                for factor, years in vit[3].items():
+                    lines.append(f"VitalityDriver,Device={dev},factor={factor} years={years} {ts}")
+            if rec is not None:
+                terms = recovery_terms(hrv.get(d), rhr.get(d), resp.get(d), sleep_perf, hb, rb, pb)
+                for factor, points in recovery_drivers(terms).items():
+                    lines.append(f"RecoveryDriver,Device={dev},factor={factor} points={points} {ts}")
         if rec is not None or st is not None or ill is not None:
             summary.append((d, rec, st, ill[2] if ill else 0, debt.get(d, (None,))[0]))
 

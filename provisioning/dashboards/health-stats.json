@@ -1366,12 +1366,384 @@
    "type": "stat"
   },
   {
+   "datasource": {
+    "type": "influxdb",
+    "uid": "health-stats-influx"
+   },
+   "description": "VitalityEngine (WHOOP-Age method): published mortality-hazard ratios per factor vs population references, Gompertz-converted to years. A wellness comparison, not a clinical age. \u00b15y. Needs USER_AGE/USER_SEX in .env.",
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 1,
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "purple"
+       }
+      ]
+     },
+     "unit": "none"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 4,
+    "x": 0,
+    "y": 19
+   },
+   "id": 224,
+   "options": {
+    "colorMode": "value",
+    "graphMode": "area",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "alias": "Body age",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "health-stats-influx"
+     },
+     "groupBy": [
+      {
+       "params": [
+        "$__interval"
+       ],
+       "type": "time"
+      },
+      {
+       "params": [
+        "null"
+       ],
+       "type": "fill"
+      }
+     ],
+     "measurement": "Vitality",
+     "orderByTime": "ASC",
+     "policy": "default",
+     "refId": "A",
+     "resultFormat": "time_series",
+     "select": [
+      [
+       {
+        "params": [
+         "body_age"
+        ],
+        "type": "field"
+       },
+       {
+        "params": [],
+        "type": "distinct"
+       }
+      ]
+     ],
+     "tags": []
+    }
+   ],
+   "title": "Body Age",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "influxdb",
+    "uid": "health-stats-influx"
+   },
+   "description": "0\u2013100; 50 = typical for your age. Same engine as Body Age.",
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 0,
+     "mappings": [],
+     "max": 100,
+     "min": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red"
+       },
+       {
+        "color": "yellow",
+        "value": 40
+       },
+       {
+        "color": "green",
+        "value": 55
+       }
+      ]
+     },
+     "unit": "none"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 4,
+    "x": 4,
+    "y": 19
+   },
+   "id": 225,
+   "options": {
+    "colorMode": "value",
+    "graphMode": "area",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "alias": "Vitality",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "health-stats-influx"
+     },
+     "groupBy": [
+      {
+       "params": [
+        "$__interval"
+       ],
+       "type": "time"
+      },
+      {
+       "params": [
+        "null"
+       ],
+       "type": "fill"
+      }
+     ],
+     "measurement": "Vitality",
+     "orderByTime": "ASC",
+     "policy": "default",
+     "refId": "A",
+     "resultFormat": "time_series",
+     "select": [
+      [
+       {
+        "params": [
+         "value"
+        ],
+        "type": "field"
+       },
+       {
+        "params": [],
+        "type": "distinct"
+       }
+      ]
+     ],
+     "tags": []
+    }
+   ],
+   "title": "Vitality",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "influxdb",
+    "uid": "health-stats-influx"
+   },
+   "description": "Leave-one-out attribution \u2014 each factor's points vs the score without it.",
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 1,
+     "mappings": [],
+     "max": 12,
+     "min": -12,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red"
+       },
+       {
+        "color": "green",
+        "value": 0
+       }
+      ]
+     },
+     "unit": "none"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 8,
+    "x": 8,
+    "y": 19
+   },
+   "id": 226,
+   "options": {
+    "displayMode": "gradient",
+    "orientation": "horizontal",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "showUnfilled": true
+   },
+   "targets": [
+    {
+     "alias": "$tag_factor",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "health-stats-influx"
+     },
+     "groupBy": [
+      {
+       "params": [
+        "factor"
+       ],
+       "type": "tag"
+      },
+      {
+       "params": [
+        "$__interval"
+       ],
+       "type": "time"
+      },
+      {
+       "params": [
+        "null"
+       ],
+       "type": "fill"
+      }
+     ],
+     "measurement": "RecoveryDriver",
+     "orderByTime": "ASC",
+     "policy": "default",
+     "refId": "A",
+     "resultFormat": "time_series",
+     "select": [
+      [
+       {
+        "params": [
+         "points"
+        ],
+        "type": "field"
+       },
+       {
+        "params": [],
+        "type": "distinct"
+       }
+      ]
+     ],
+     "tags": []
+    }
+   ],
+   "title": "Why: today's recovery",
+   "type": "bargauge"
+  },
+  {
+   "datasource": {
+    "type": "influxdb",
+    "uid": "health-stats-influx"
+   },
+   "description": "Signed years each factor adds (+ ages you) or removes (\u2212 protective).",
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 2,
+     "mappings": [],
+     "max": 3,
+     "min": -3,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green"
+       },
+       {
+        "color": "red",
+        "value": 0.01
+       }
+      ]
+     },
+     "unit": "none"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 8,
+    "x": 16,
+    "y": 19
+   },
+   "id": 227,
+   "options": {
+    "displayMode": "gradient",
+    "orientation": "horizontal",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "showUnfilled": true
+   },
+   "targets": [
+    {
+     "alias": "$tag_factor",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "health-stats-influx"
+     },
+     "groupBy": [
+      {
+       "params": [
+        "factor"
+       ],
+       "type": "tag"
+      },
+      {
+       "params": [
+        "$__interval"
+       ],
+       "type": "time"
+      },
+      {
+       "params": [
+        "null"
+       ],
+       "type": "fill"
+      }
+     ],
+     "measurement": "VitalityDriver",
+     "orderByTime": "ASC",
+     "policy": "default",
+     "refId": "A",
+     "resultFormat": "time_series",
+     "select": [
+      [
+       {
+        "params": [
+         "years"
+        ],
+        "type": "field"
+       },
+       {
+        "params": [],
+        "type": "distinct"
+       }
+      ]
+     ],
+     "tags": []
+    }
+   ],
+   "title": "Why: body age (years per factor)",
+   "type": "bargauge"
+  },
+  {
    "collapsed": false,
    "gridPos": {
     "h": 1,
     "w": 24,
     "x": 0,
-    "y": 19
+    "y": 26
    },
    "id": 220,
    "panels": [],
@@ -1455,7 +1827,7 @@
     "h": 8,
     "w": 12,
     "x": 0,
-    "y": 20
+    "y": 27
    },
    "id": 66,
    "options": {
@@ -1666,7 +2038,7 @@
     "h": 8,
     "w": 12,
     "x": 12,
-    "y": 20
+    "y": 27
    },
    "hideTimeOverride": true,
    "id": 39,
@@ -1819,7 +2191,7 @@
     "h": 8,
     "w": 8,
     "x": 0,
-    "y": 28
+    "y": 35
    },
    "id": 75,
    "options": {
@@ -2078,7 +2450,7 @@
     "h": 8,
     "w": 8,
     "x": 8,
-    "y": 28
+    "y": 35
    },
    "hideTimeOverride": true,
    "id": 36,
@@ -2221,7 +2593,7 @@
     "h": 8,
     "w": 8,
     "x": 16,
-    "y": 28
+    "y": 35
    },
    "hideTimeOverride": true,
    "id": 67,
@@ -2415,7 +2787,7 @@
     "h": 8,
     "w": 12,
     "x": 0,
-    "y": 36
+    "y": 43
    },
    "id": 90,
    "options": {
@@ -2615,7 +2987,7 @@
     "h": 8,
     "w": 12,
     "x": 12,
-    "y": 36
+    "y": 43
    },
    "id": 15,
    "options": {
@@ -2780,7 +3152,7 @@
     "h": 1,
     "w": 24,
     "x": 0,
-    "y": 44
+    "y": 51
    },
    "id": 221,
    "panels": [],
@@ -2840,7 +3212,7 @@
     "h": 8,
     "w": 8,
     "x": 0,
-    "y": 45
+    "y": 52
    },
    "id": 202,
    "options": {
@@ -2963,7 +3335,7 @@
     "h": 8,
     "w": 8,
     "x": 8,
-    "y": 45
+    "y": 52
    },
    "id": 204,
    "options": {
@@ -3080,7 +3452,7 @@
     "h": 8,
     "w": 8,
     "x": 16,
-    "y": 45
+    "y": 52
    },
    "id": 207,
    "options": {
@@ -3175,7 +3547,7 @@
     "h": 8,
     "w": 8,
     "x": 0,
-    "y": 53
+    "y": 60
    },
    "id": 213,
    "options": {
@@ -3296,7 +3668,7 @@
     "h": 8,
     "w": 8,
     "x": 8,
-    "y": 53
+    "y": 60
    },
    "id": 214,
    "options": {
@@ -3440,7 +3812,7 @@
     "h": 8,
     "w": 8,
     "x": 16,
-    "y": 53
+    "y": 60
    },
    "id": 208,
    "options": {
@@ -3673,7 +4045,7 @@
     "h": 8,
     "w": 8,
     "x": 0,
-    "y": 61
+    "y": 68
    },
    "id": 32,
    "options": {
@@ -4039,7 +4411,7 @@
     "h": 8,
     "w": 8,
     "x": 8,
-    "y": 61
+    "y": 68
    },
    "id": 35,
    "options": {
@@ -4244,7 +4616,7 @@
     "h": 8,
     "w": 8,
     "x": 16,
-    "y": 61
+    "y": 68
    },
    "id": 215,
    "options": {
@@ -4435,7 +4807,7 @@
     "h": 8,
     "w": 8,
     "x": 0,
-    "y": 69
+    "y": 76
    },
    "id": 7,
    "options": {
@@ -4612,7 +4984,7 @@
     "h": 8,
     "w": 8,
     "x": 8,
-    "y": 69
+    "y": 76
    },
    "id": 5,
    "options": {
@@ -4723,7 +5095,7 @@
     "h": 8,
     "w": 8,
     "x": 16,
-    "y": 69
+    "y": 76
    },
    "id": 216,
    "options": {
@@ -4890,7 +5262,7 @@
     "h": 8,
     "w": 8,
     "x": 0,
-    "y": 77
+    "y": 84
    },
    "id": 44,
    "options": {
@@ -5155,7 +5527,7 @@
     "h": 8,
     "w": 8,
     "x": 8,
-    "y": 77
+    "y": 84
    },
    "id": 45,
    "options": {
@@ -5319,7 +5691,7 @@
     "h": 8,
     "w": 8,
     "x": 16,
-    "y": 77
+    "y": 84
    },
    "id": 48,
    "options": {
@@ -5586,7 +5958,7 @@
     "h": 9,
     "w": 12,
     "x": 0,
-    "y": 85
+    "y": 92
    },
    "id": 42,
    "options": {
@@ -5722,7 +6094,7 @@
     "h": 9,
     "w": 12,
     "x": 12,
-    "y": 85
+    "y": 92
    },
    "id": 29,
    "options": {
@@ -5841,7 +6213,7 @@
     "h": 9,
     "w": 12,
     "x": 0,
-    "y": 94
+    "y": 101
    },
    "id": 17,
    "options": {
@@ -5952,7 +6324,7 @@
     "h": 9,
     "w": 12,
     "x": 12,
-    "y": 94
+    "y": 101
    },
    "id": 23,
    "options": {
@@ -6033,7 +6405,7 @@
     "h": 1,
     "w": 24,
     "x": 0,
-    "y": 103
+    "y": 110
    },
    "id": 222,
    "panels": [],
@@ -6117,7 +6489,7 @@
     "h": 8,
     "w": 9,
     "x": 0,
-    "y": 104
+    "y": 111
    },
    "id": 217,
    "options": {
@@ -6299,7 +6671,7 @@
     "h": 8,
     "w": 9,
     "x": 9,
-    "y": 104
+    "y": 111
    },
    "id": 218,
    "options": {
@@ -6462,7 +6834,7 @@
     "h": 8,
     "w": 6,
     "x": 18,
-    "y": 104
+    "y": 111
    },
    "id": 9,
    "options": {
@@ -6626,7 +6998,7 @@
     "h": 9,
     "w": 24,
     "x": 0,
-    "y": 112
+    "y": 119
    },
    "id": 34,
    "options": {
@@ -6719,6 +7091,6 @@
  "timezone": "browser",
  "title": "Fitbit Stats",
  "uid": "_cl7FMC4z",
- "version": 11,
+ "version": 12,
  "weekStart": ""
 }
